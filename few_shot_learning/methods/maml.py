@@ -1,0 +1,185 @@
+# This code is modified from https://github.com/dragen1860/MAML-Pytorch and https://github.com/katerakelly/pytorch-maml
+
+from methods import backbone
+import torch
+import torch.nn as nn
+import numpy as np
+from methods.meta_template import MetaTemplate
+from methods.drop_grad import DropGrad
+
+class MAML(MetaTemplate):
+  def __init__(self, model_func,  n_way, n_support, tf_path=None, approx=False, dropout_method='none', dropout_rate=0., dropout_schedule='constant'):
+    super(MAML, self).__init__( model_func,  n_way, n_support, tf_path=tf_path, change_way=False)
+
+    self.loss_fn = nn.CrossEntropyLoss()
+    self.classifier = backbone.Linear_fw(self.feat_dim, n_way)
+    self.classifier.bias.data.fill_(0)
+
+    self.batch_size = 4
+    self.task_update_num = 5
+    self.train_lr = 0.01
+    self.approx = approx #first order approx.
+
+    self.dropout = DropGrad(dropout_method, dropout_rate, dropout_schedule)
+    self.optimizer = torch.optim.Adam(self.parameters())
+
+  def forward(self,x):
+    out  = self.feature.forward(x)
+    scores  = self.classifier.forward(out)
+    return scores
+
+  def set_forward(self, x):
+    x = x.cuda()
+    x_a_i = x[:,:self.n_support,:,:,:].contiguous().view( self.n_way* self.n_support, *x.size()[2:])
+    x_b_i = x[:,self.n_support:,:,:,:].contiguous().view( self.n_way* self.n_query,   *x.size()[2:])
+    y_a_i = torch.from_numpy(np.repeat(range( self.n_way ), self.n_support)).cuda()
+
+    fast_parameters = list(self.parameters())
+    for weight in self.parameters():
+      weight.fast = None
+    self.zero_grad()
+
+    for task_step in range(self.task_update_num):
+
+      # forward and get grad on support data
+      scores = self.forward(x_a_i)
+      set_loss = self.loss_fn(scores, y_a_i)
+      grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True)
+
+      # first order approx
+      if self.approx:
+        grad = [g.detach() for g in grad]
+
+      # update
+      fast_parameters = []
+      for k, (name, weight) in enumerate(self.named_parameters()):
+
+        # regularization
+        if self.training:
+          grad[k] = self.dropout(grad[k])
+
+        # update
+        if weight.fast is None:
+          weight.fast = weight - self.train_lr * grad[k] #link fast weight to weight
+        else:
+          weight.fast = weight.fast - self.train_lr * grad[k]
+        fast_parameters.append(weight.fast)
+
+    # forward and get loss on query data
+    scores = self.forward(x_b_i)
+    return scores
+
+  def set_forward_adaptation(self,x, is_feature = False): #overwrite parrent function
+    raise ValueError('MAML performs further adapation simply by increasing task_upate_num')
+
+  def set_forward_loss(self, x):
+    scores = self.set_forward(x)
+    y_b_i = torch.from_numpy(np.repeat(range( self.n_way ), self.n_query)).cuda()
+    loss = self.loss_fn(scores, y_b_i)
+    return scores, loss
+
+  def train_loop(self, epoch, stop_epoch, train_loader, total_it): #overwrite parrent function
+    print_freq = len(train_loader) // 5
+    avg_loss=0
+    task_count = 0
+    loss_all = []
+    self.optimizer.zero_grad()
+
+    # update dropout rate
+    self.dropout.update_rate(epoch, stop_epoch) ## epoch / (stop_epoch - 1) * self.dropout_p
+
+    # train loop
+    for i, (x,_) in enumerate(train_loader):
+      self.n_query = x.size(1) - self.n_support
+      assert(self.n_way==x.size(0))
+
+      # get loss
+      self.optimizer.zero_grad()
+      _, loss = self.set_forward_loss(x)
+      avg_loss = avg_loss+loss.item()
+      loss_all.append(loss)
+
+      # batch update
+      task_count += 1
+      if task_count == self.batch_size:
+        loss_q = torch.stack(loss_all).sum(0)
+        loss_q.backward()
+        self.optimizer.step()
+        task_count = 0
+        loss_all = []
+
+      # print out
+      if (i + 1) % print_freq==0:
+        print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(epoch + 1, stop_epoch, i + 1, len(train_loader), avg_loss/float(i+1)))
+      if (total_it + 1) % 10 == 0 and self.tf_writer is not None:
+        self.tf_writer.add_scalar('maml/query_loss', loss.item(), total_it + 1)
+      total_it += 1
+
+    return total_it
+
+  def test_loop(self, test_loader, epoch=None, return_std=False,
+                cls_info=False): #overwrite parrent function
+    loss = 0.
+    count = 0
+    acc_all = []
+    cfs_mtx = np.zeros((self.n_way, self.n_way))
+
+    iter_num = len(test_loader)
+    for i, (x, y) in enumerate(test_loader):
+      self.n_query = x.size(1) - self.n_support
+      assert(self.n_way==x.size(0))
+      if cls_info:
+        labels = [int(lbl[0]) for lbl in y]
+        correct_this, count_this, loss_this, gt_idx, pred = self.correct(x, cls_info)
+        assert len(gt_idx) == len(pred), "Ground truth and prediction mismatch!!"
+        for g, p in zip(gt_idx, pred):
+            cfs_mtx[labels[g], labels[p]] += 1
+
+      else:
+        correct_this, count_this, loss_this = self.correct(x)
+      acc_all.append(correct_this/ count_this *100 )
+      loss += loss_this
+      count += count_this
+
+    acc_all  = np.asarray(acc_all)
+    acc_mean = np.mean(acc_all)
+    acc_std  = np.std(acc_all)
+    if cls_info:
+        print('P/G\t\t0\t1\t2\t3\t4')
+        print()
+        for lbl_idx in range(self.n_way):
+            print(lbl_idx, end='\t\t')
+            for pred_idx in range(self.n_way):
+                print(f'{int(cfs_mtx[lbl_idx, pred_idx]/(i+1))}', end='\t')
+            print()
+        _ = self.cal_precision_recall_f1(cfs_mtx)
+    print('--- %d Loss = %.6f ---' %(iter_num,  loss/count))
+    print('--- %d Test Acc = %4.2f%% +- %4.2f%% ---' %(iter_num,  acc_mean, 1.96* acc_std/np.sqrt(iter_num)))
+
+    if self.tf_writer is not None:
+      assert(epoch is not None)
+      self.tf_writer.add_scalar('maml/val_loss', loss/count, epoch)
+
+    if return_std:
+      return acc_mean, acc_std
+    else:
+      return acc_mean
+
+  def cal_precision_recall_f1(self, confusion_matrix):
+      metrics = np.zeros((self.n_way, 3))
+      for cls in range(self.n_way):
+        # Precision
+        prec = confusion_matrix[cls][cls] / np.sum(confusion_matrix[cls, :])
+        metrics[cls][0] = prec
+        # Recall
+        rec = confusion_matrix[cls][cls] / np.sum(confusion_matrix[:, cls])
+        metrics[cls][1] = rec
+        # F1-score
+        metrics[cls][2] = 2 * prec * rec / (prec + rec)
+
+      print()
+      print("Metrics:\tPrecesion\tRecall\tF1-score")
+      for cls in range(self.n_way):
+          print(f"{cls}\t\t{metrics[cls][0]:.2f}\t\t{metrics[cls][1]:.2f}\t{metrics[cls][2]:.2f}")
+
+      return True
