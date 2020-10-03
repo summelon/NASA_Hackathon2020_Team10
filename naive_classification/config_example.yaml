@@ -1,0 +1,12 @@
+train: [
+    0, 1, ... # train class
+]
+test:
+    # trail 1
+    - class: [0, 1, ...] # test class
+      sample: [[100, 10], ...] # [[train amount, test amount], ...]
+    # trail 2
+    - class: [5, 6, ...] # test class
+      sample: [[500, 50], ...] # [[train amount, test amount], ...]
+    
+    ...
