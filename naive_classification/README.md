@@ -2,9 +2,13 @@
 
 ## Environment
 * Pytorch 1.6 docker container
-  `docker run -it --gpus all -v {inaturalist path}:/train-data -v $(pwd):/workspace pytorch/pytorch:1.6.0-cuda10.1-cudnn7-runtime /bin/bash`
+  ```
+  docker run -it --gpus all -v {inaturalist path}:/train-data -v $(pwd):/workspace pytorch/pytorch:1.6.0-cuda10.1-cudnn7-runtime /bin/bash
+  ```
 * Data processing package
-  `pip install pandas scikit-learn`
+  ```
+  pip install pandas scikit-learn
+  ```
 
 ### iNaturalist Path
 ```
