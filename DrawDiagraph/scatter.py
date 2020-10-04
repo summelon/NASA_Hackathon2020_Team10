@@ -2,7 +2,7 @@ import csv
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-with open('/file/path') as csvfile:
+with open('scatter.csv') as csvfile:
     spamreader = csv.reader(csvfile)
     x=[]
     x1=['215C','228C','230C','239C','302C']
@@ -74,4 +74,4 @@ plt.xticks(np.arange(0.5,12.5,step=2),ticks)
 plt.xlim(-1,len(ticks)*2)
 plt.ylim(0,1.19)
 plt.tight_layout()
-plt.savefig('/image/path')
+plt.savefig('scatter_day.png')
