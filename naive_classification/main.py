@@ -15,20 +15,33 @@ from autoaugment import ImageNetPolicy
 from InaturalistDataset import InaturalistDataset
 
 
-def load_data(image_size, category_filter, train_test_split):
-    train_transform = transforms.Compose([
-        transforms.Resize(image_size),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomAffine(30, translate=(0.3, 0.3), scale=(1.0, 1.5)),
-        ImageNetPolicy(),
-        # transforms.Grayscale(3),
-        transforms.ToTensor()
-    ])
-    test_transform = transforms.Compose([
-        transforms.Resize(image_size),
-        # transforms.Grayscale(3),
-        transforms.ToTensor()
-    ])
+def load_data(image_size, category_filter, train_test_split, is_gray=False):
+    if is_gray:
+        train_transform = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomAffine(30, translate=(0.3, 0.3), scale=(1.0, 1.5)),
+            ImageNetPolicy(),
+            transforms.Grayscale(3),
+            transforms.ToTensor()
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.Grayscale(3),
+            transforms.ToTensor()
+        ])
+    else:
+        train_transform = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomAffine(30, translate=(0.3, 0.3), scale=(1.0, 1.5)),
+            ImageNetPolicy(),
+            transforms.ToTensor()
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.ToTensor()
+        ])
 
     root_dir = '/train-data/inaturalist-2019/'
     train_test_set = InaturalistDataset(
@@ -92,9 +105,9 @@ def load_net(output_classes, net=None):
     return net
 
 
-def run(net, category_filter, train_test_split, patience, moniter, is_query=False):
+def run(net, category_filter, train_test_split, patience, moniter, is_gray=False, is_query=False):
     output_classes = len(category_filter)
-    train_loader, val_loader, test_loader = load_data(image_size, category_filter, train_test_split)
+    train_loader, val_loader, test_loader = load_data(image_size, category_filter, train_test_split, is_gray=is_gray)
 
     optimizer = torch.optim.Adam(net.parameters(), lr=0.0005, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=4, gamma=0.1)
@@ -130,6 +143,7 @@ def run(net, category_filter, train_test_split, patience, moniter, is_query=Fals
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', dest='config_name', type=str, default='config.yaml')
+    parser.add_argument('-m', '--mode', dest='model_mode', type=str, default='day')
     args = parser.parse_args()
 
     name, extension = os.path.splitext(os.path.basename(args.config_name))
@@ -163,7 +177,7 @@ if __name__ == '__main__':
 
     net = load_net(len(config['train']))
 
-    history = run(net, config['train'], train_test_split=0.75, patience=5, moniter='val_loss')
+    history = run(net, config['train'], train_test_split=0.75, patience=5, moniter='val_loss', is_gray=(args.model_mode == "night"))
 
     logger.info(f'train accuracy: {(history["accuracy"]):.3f}')
 
@@ -178,7 +192,15 @@ if __name__ == '__main__':
 
         logger.info(f'train test split: {train_test_split}')
 
-        y_test, y_hat = run(net_copy, category_filter['class'], train_test_split=train_test_split, patience=3, moniter='loss', is_query=True)
+        y_test, y_hat = run(
+            net_copy,
+            category_filter['class'],
+            train_test_split=train_test_split,
+            patience=3,
+            moniter='loss',
+            is_gray=(args.model_mode == 'night'),
+            is_query=True
+        )
 
         total += len(y_test)
         correct += (y_test == y_hat).sum()
