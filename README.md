@@ -11,6 +11,13 @@ Therefore Few-shot Learning strategy may classify more precise among common spec
 - In order to improve the performance when implementing on edge devices, we also show the model compression work we have done.
 ![](https://i.imgur.com/Lex38aU.png)
 
+## Environment
+```
+FROM pytorch/pytorch:1.6.0-cuda10.1-cudnn7-runtime
+
+RUN pip install scipy numpy tensorboardX pandas scikit-learn Pillow h5py
+```
+
 ## Reproduce details
 - [naïve classification](https://github.com/summelon/NASA_Hackathon2020_Team10/blob/main/naive_classification/README.md)
 - [Few-shot learning](https://github.com/summelon/NASA_Hackathon2020_Team10/blob/main/few_shot_learning/README.md)
