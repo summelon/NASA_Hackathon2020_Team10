@@ -8,7 +8,11 @@ The naive classification using `resnet18` to classify iNaturalist data.
   ```
 * Data processing package
   ```
-  pip install pandas scikit-learn
+  pip install pandas scikit-learn Pillow
+  ```
+* `autoaugment.py` (already include)
+  ```
+  git clone https://github.com/DeepVoltaire/AutoAugment.git
   ```
 
 ### iNaturalist Path
@@ -80,8 +84,11 @@ license {
 ## Usage
 * copy `config_example.yaml` to `config.yaml`
 * update information in `config.yaml`
-* `python main.py`
+* `python main.py` for training and testing
 
 ### Argument
 * `-c`, `--config`: config file path, default is `config.yaml` in same directory
 * `-m`, `--mode`: model mode, will transform data, should be `day` or `night`, default is `day`
+
+## Result
+* [naive classification test](https://hackmd.io/RXDaM5StRImyCQ_bLUDXTg)
