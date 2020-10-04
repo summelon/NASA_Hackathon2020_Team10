@@ -12,6 +12,7 @@ Therefore Few-shot Learning strategy may classify more precise among common spec
 ![](https://i.imgur.com/Lex38aU.png)
 
 ## Environment
+- Dockerfile
 ```
 FROM pytorch/pytorch:1.6.0-cuda10.1-cudnn7-runtime
 
